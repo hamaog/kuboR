@@ -1,0 +1,147 @@
+---
+title: "kubo3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+d <- read.csv("/Users/hamaokigaizaburo/Documents/kuboR/intro-statistical-modeling-master/data/data3.csv")
+d
+```
+
+```{r}
+d$x
+```
+
+```{r}
+d$y
+```
+
+```{r}
+d$f
+```
+
+```{r}
+class(d)
+```
+
+```{r}
+class(d$y)
+```
+
+```{r}
+class(d$x)
+```
+
+```{r}
+class(d$f)
+```
+
+
+```{r}
+summary(d)
+```
+
+
+```{r, results='hold'}
+plot(d$x, d$y, pch = c(21,19)[d$f])
+legend('topleft', legend = c('C', 'T'), pch = c(21, 19))
+```
+
+```{r}
+fit <- glm(y ~ x, data = d, family = poisson)
+```
+
+
+```{r}
+print(fit)
+```
+
+```{r}
+summary(fit)
+```
+
+- `(Intercept)`: 切片$\beta_{1}$
+- `x`: 傾き$\beta_{2}$
+- `Estimate`: 最尤推定値
+- `Std.Error`: 標準誤差の**推定値**
+    - 「真のモデル」は知らないのであくまで「推定」した値
+    - 推定のばらつきが正規分布であると仮定し, さらに対数尤度関数(最尤推定値で最大になる凸関数)は最大値付近でのカタチがその正規分布に近いと仮定することで得ている(ある種の近似)
+- `z value`: z値(最尤推定値をSEで除した値)
+    - 最尤推定値がゼロから十分に離れているかの目安
+    - Wald統計量(Wald statistics)とも呼ばれる
+- `Pr(>|z|)`: 平均=(z値の絶対値), 標準偏差1の正規分布がマイナス無限大からゼロまでの値を取る確率の2倍
+    - 大きいほどz値がゼロに近い(=最尤推定値がゼロに近い)
+
+```{r}
+logLik(fit)
+```
+
+```{r, fig.show='hold'}
+xx <- seq(min(d$x), max(d$x), length = 100)
+plot(d$x, d$y, pch = c(21, 19)[d$f])
+lines(xx, exp(1.29 + 0.0757 * xx), lwd = 2)
+```
+
+```{r, fig.show='hold'}
+yy <- predict(fit, newdata = data.frame(x=xx),
+              type="response")
+plot(d$x, d$y, pch = c(21, 19)[d$f])
+lines(xx, yy, lwd=2)
+```
+
+```{r}
+fit.f <- glm(y ~ f, data = d, family = poisson)
+```
+
+```{r}
+print(fit.f)
+```
+
+```{r}
+summary(fit.f)
+```
+
+```{r}
+logLik(fit.f)
+```
+
+
+```{r}
+fit.all <- glm(y ~ x + f, data = d, family = poisson)
+```
+
+```{r}
+print(fit.all)
+```
+
+```{r}
+summary(fit.all)
+```
+
+今回の場合において、直線回帰は次のような問題点がある.
+
+- 正規分布は連続的な値を扱うハズでは??
+- カウントデータなのに, 平均値の予測がマイナスになる??
+- 「ばらつき一定」ではないのに, **分散一定**を仮定する??
+
+一方でこの場合だとポアソン分布を用いることで上記3点をつぎのように解決できる.
+
+- ポアソン分布を使っているのでカウントデータに正しく対応
+- 対数リンク関数を使えば平均値は常に非負
+- $y$のばらつきは平均とともに増大する
+
+まとめ
+
+- 一般化線形モデル(GLM)はポアソン回帰やロジスティック回帰など、いくつかの制約を満たしている統計モデルたちの総称である
+- Rを使うとデータをようやくしたいろいろな統計量を調べられる
+- 統計モデルを作るためにはデータを図示することがとても大切である
+- GLMは確率分布・リンク関数・線形予測子を指定する統計モデルであり、Rのglm()関数でパラメータ推定できる
+- 統計モデルの因子型の説明変数は、ダミー変数という考え方で(とりあえず)理解できる
+- GLMでは、数量型・因子型の両タイプの説明変数を同時に組み込んでよく、またその時に対数リンク関数を使っていると説明変数の効果が、それぞれの積として表現できるので理解しやすい
+- GLMの設計では、データをうまく表現できる確率分布を選ぶという発想なので、「なんでも正規分布」といった考え方から脱却できる
+
+
