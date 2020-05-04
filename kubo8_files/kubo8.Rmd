@@ -1,0 +1,83 @@
+---
+title: "kubo8"
+output: html_document
+---
+
+## 導入
+統計モデルに組み込まれたランダム効果の発生源の種類が増えるにつれ、  
+GLMMなどによるパラメータの推定は困難になる(ランダム効果の発生要素の分だけ多重積分する必要がある)  
+そんな時に使えるのが**マルコフ連鎖モンテカルロ法(MCMCアルゴリズム)**
+
+## メトロポリス法
+もっとも簡単なアルゴリズム
+
+1. パラメータqの初期値を選ぶ
+1. qを増やすか減らすかをランダムに決める(新しく選んだqの値をqnewとする)
+1. qnewにおいて尤度が大きくなる(あてはまりが良くなる)ならqの値をqnewに変更する
+1. qnewで尤度が小さくなる(当てはまりが悪くなる)場合であっても、確率rでqの値をqnewに変更する  
+    $r = L(qnew)/L(q)$   右辺は尤度比を指す
+
+4の手順により、尤度比が1に近いほど移動しやすくなる。
+
+[参考リンク](https://rpubs.com/aishida/mcmc)
+
+```{r,results='asis'}
+#コインの表裏を考える
+data<-c(0,1,1,1,1,0,1,1,0,1)
+
+#パラメタqの尤度算出
+LL_Bern<-function(x,q) { 
+  q^sum(x)*(1-q)^(length(x)-sum(x))
+}
+
+#事前分布の設定と、ここでは一様分布を仮定した事後分布推定
+prior_beta<-function(q,a,b) dbeta(q,a,b) #same as dunif(q,0,1)
+joint<-function(x,q) LL_Bern(x,q)*prior_beta(q,1,1)
+
+#尤度比を決めて、動くか否かを決定する
+Metropolis<-function(current) {
+  propose<-runif(1,0,1)
+  postOdds<-joint(data,propose)/joint(data,current)
+  pmove<-min(postOdds,1)
+  if(pmove>=runif(1,0,1)) propose else current 
+}
+
+nsteps<-11000 # number of steps
+mcmcsample<-rep(NA,nsteps + 1)
+mcmcsample[1]<-0.5 # initial position
+
+for (i in 1:nsteps) {
+  mcmcsample[i+1]<-Metropolis(mcmcsample[i])
+}
+plot(mcmcsample[-(1:1000)],type="l",col="skyblue")
+
+hist(mcmcsample[-(1:1000)],freq =FALSE,col="skyblue")
+lines(seq(0,1,0.01),
+      dbeta(seq(0,1,0.01),1+sum(data),1+length(data)-sum(data)),col="red")
+
+```
+
+
+MCMCアルゴリズムの目的は**特定の値の探索ではなく、ステップ数と共に変化するパラメータの値の生成**であり、これをサンプリングと呼ぶ  
+ステップ数が増えると、サンプルされた値が**定常分布**と呼ばれる確率分布に収束していく  
+
+定常分布に近くためには、相当のステップ数が必要
+
+- サンプリング開始時には定常分布と関係なくqの値を決める
+- qの値は少しずつしか変化しない(まったく変化しない様なこともある)
+
+この定常分布$p(q|Y)$は尤度$L(q)$に比例する確率分布と考えられるため、  
+あるデータ$Y$に統計モデルをあてはめたときにqがとる値の確率分布と解釈できる
+
+## MCMCサンプリングとベイズ統計モデル
+
+頻度主義からすると、真の値を想定した上で分布等を作るので、  
+この様なパラメータの移動から得られる分布という考え方はありえない。  
+が、ベイズ統計モデルとして解釈することによって、  
+それは**事後分布**を想定できるので解釈が可能になる。
+
+ベイズ統計モデル
+$$
+  事後分布 = \frac{尤度 * 事前分布}{データが得られる確率}∝ 尤度 * 事前分布
+$$
+
