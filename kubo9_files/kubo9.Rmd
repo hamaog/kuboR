@@ -1,0 +1,148 @@
+---
+title: "kubo9"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 例題：種子数のポアソン回帰(個体差なし)
+
+架空植物の第i番目の個体、個体ごとに、個体サイズ$x_{i}$と種子数$y_{i}$の依存関係を見る  
+個体差を想定しない場合には、
+
+```{r,eval=FALSE}
+glm(y~x, family = poisson, data = ...)
+```
+
+これによって切片と傾きの最尤推定値が得られる
+
+### GLMのベイズモデル化
+サイズによる種子数のバラツキは平均$\lambda_{i}$のポアソン分布$p(y_{i}\mid \lambda_{i})$に従うとする。  
+この例題では個体差をそうていしていないので、ランダム効果の項はなし。
+
+ベイズモデルの事後分布は尤度×事前分布に比例するので、以下の様に表せる。  
+
+$$p(\beta_{1},\beta_{2}\mid \textbf{Y})\propto p(\textbf{Y}\mid \beta_{1},\beta_{2})p(\beta_{1})p(\beta_{2})$$
+
+### 無情報事前分布
+事前に確率分布がわからない場合には、線形予測子のパラメーター$\beta$が$[-\infty,\infty]$の範囲で好きな値をとって良いという無情報事前分布を設定する  
+無情報っぽい事前分布として扱うのは、ばらつきがかなり大きくなる様に(偏りが出ない様に)  
+
+* $-10^{9}<\beta<10^{9}$の範囲をとる一様分布
+* 平均が0で標準偏差がとても大きい平べったい正規分布(例えば$N(0,100)$の様な)
+
+のいずれかを使う(この本では後者を使う)
+
+### ベイズ統計モデルの事後分布の推定
+winbugs使えないしstanを使う  
+
+[インストール](https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started)  
+インストールするのめっちゃめんどくせぇ。。。  
+[インストール補足](https://sonnamonyaro.hatenablog.com/entry/2019/11/16/092734)  
+catalinaからのインストールにはR4.0.0が最短かも  
+[参考リンク](http://physyuki.hatenablog.com/entry/2014/02/16/123048)
+
+kubo9.stanファイルにパラメータなどベイズ統計モデルを記述  
+その後繰り返し回数と、burnin(最初の方の試行のうち、何回までを使わないか)を決める  
+なお、繰り返し回数については、複数のサンプル列(MCMCサンプル)を比較し、その大小によって収束しているかどうかを判断する  
+
+```{stanfile:kubo9.stan}
+data {
+  int<lower=0> N;
+  real X[N];
+  real MeanX;
+  int<lower=0> y[N];
+}
+parameters {
+  real beta1;
+  real beta2;
+}
+model {
+   for (i in 1:N){
+      y[i] ~ poisson(exp(beta1 + beta2 * (X[i] - MeanX)));
+   }
+   beta1 ~ normal(0, 100); //無情報事前分布
+   beta2 ~ normal(0, 100); //無情報事前分布
+}
+```
+
+```{r,results='hide'}
+library("rstan")
+
+load("/Users/hamaokigaizaburo/Documents/kuboR/intro-statistical-modeling-master/data/d.RData")
+d.dat <- list(N=dim(d)[1], X=d$x, y=d$y, MeanX=mean(d$x)) #Stanに渡すデータ
+d.fit <- stan(file='kubo9.stan', data=d.dat, iter=1600, warmup=100, thin=3, chains=3)
+```
+
+### MCMCサンプルから事後分布を推定
+
+```{r,results='markup'}
+d.fit
+```
+
+これにより、各パラメータの事後分布にまつわる情報を出すことができる  
+ex)beta1の値の範囲は95%の事後確率で、1.8 ~ 2.12 になる  
+また、収束指数はRhat列、有効なサンプルサイズはn_eff列に記述されている  
+このとき、隣り合うMCMCステップのサンプル間の相関が高い時に、この有効なサンプルサイズは小さくなる 
+
+
+```{r,results='asis'}
+plot(d.fit)
+traceplot(d.fit)
+```
+
+
+
+
+```{r,results='asis'}
+library(ggplot2)
+library(reshape2)
+library(grid)
+
+d.ext <- extract(d.fit, permuted=F)
+b1.1 <- d.ext[1:500,'chain:1','beta1']
+b1.2 <- d.ext[1:500,'chain:2','beta1']
+b1.3 <- d.ext[1:500,'chain:3','beta1']
+b1 <- data.frame(chain1=b1.1, chain2=b1.2, chain3=b1.3)
+b1.melt <- melt(b1, id=c(), variable.name="chain") #ggplotで扱いやすいようにb1を再形成
+b1.melt <- data.frame(b1.melt, iter=1:500)
+
+#サンプリング過程
+p <- ggplot(b1.melt, aes(x=iter, y=value, group=chain, color=chain))
+p <- p + geom_line(size=0.1)
+p <- p + labs(title="beta1のサンプリング過程", x="Iterations", y="")
+
+#事後分布
+g <- ggplot(b1.melt, aes(x=value))
+g <- g + geom_density() + theme_bw()
+g <- g + labs(title="beta1の事後分布", x="", y="")
+
+#サンプリング過程と事後分布を並べて表示
+grid.newpage()
+pushViewport(viewport(layout=grid.layout(1, 2)))
+print(p, vp=viewport(layout.pos.row=1, layout.pos.col=1))
+print(g, vp=viewport(layout.pos.row=1, layout.pos.col=2))
+```
+
+
+### 複数パラメータのMCMCサンプリング
+MCMCサンプリングのためのアルゴリズム
+
+- メトロポリス法  
+  新しい値の候補をあげ、それに変化するかを決める
+- ギブスサンプリング  
+  新しい値の確率分布を作り、その確率分布のランダムサンプルを新しい値とする
+
+この新しい値の確率分布とは、多変量確率分布からひとつの変量をのぞいて、他の変量すべてを定数とする一変量確率分布。これを**全条件つき分布**という
+
+![ギブスサンプリング変化の挙動イメージ](/Users/hamaokigaizaburo/Documents/kuboR/kubo9_files/IMG_7643.PNG)
+
+### まとめ
+
+- 全個体に共通するパラメータの事前分布として、「どのような値でもかまわない」ことを表現する無情報事前分布を指定する
+- MCMCサンプリングソフトウェアを使うために(Rstan)、stanでこのベイズ統計モデル化したGLMを記述する
+- RstanによりMCMCサンプリングを行、またRを使って事後分布の統計量の分布やMCMCサンプル列の収束診断ができる
+- MCMCアルゴリズムはさまざまなものがあり、特にギブスサンプリングは効率の良い方法の一つである
+
